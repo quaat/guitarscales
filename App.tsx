@@ -22,6 +22,7 @@ const App: React.FC = () => {
   const [positionSpan, setPositionSpan] = useState<number>(4);
   const [hoveredChordId, setHoveredChordId] = useState<string | null>(null);
   const [selectedChordId, setSelectedChordId] = useState<string | null>(null);
+  const minStartFret = 1;
 
   // --- Load Config ---
   const scales: ScaleConfig[] = scalesData;
@@ -61,8 +62,8 @@ const App: React.FC = () => {
   }, [allChords]);
 
   const maxStartFret = useMemo(
-    () => Math.max(0, TOTAL_FRETS - (positionSpan + 1)),
-    [positionSpan]
+    () => Math.max(minStartFret, TOTAL_FRETS - (positionSpan + 1)),
+    [positionSpan, minStartFret]
   );
 
   const activeChord = useMemo(() => {
@@ -82,7 +83,7 @@ const App: React.FC = () => {
     setModeIndex(0);
     setLabelMode('note');
     setAccidentalMode('sharp');
-    setStartFret(1);
+    setStartFret(minStartFret);
     setPositionSpan(4);
     setHoveredChordId(null);
     setSelectedChordId(null);
@@ -113,11 +114,20 @@ const App: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const handleStartFretChange = (value: number) => {
+    const clamped = Math.min(Math.max(value, minStartFret), maxStartFret);
+    setStartFret(clamped);
+  };
+
   useEffect(() => {
     if (startFret > maxStartFret) {
       setStartFret(maxStartFret);
+      return;
     }
-  }, [startFret, maxStartFret]);
+    if (startFret < minStartFret) {
+      setStartFret(minStartFret);
+    }
+  }, [startFret, maxStartFret, minStartFret]);
 
   useEffect(() => {
     if (selectedChordId && !chordById.has(selectedChordId)) {
@@ -225,9 +235,10 @@ const App: React.FC = () => {
               sevenths={sevenths}
               accidentalMode={accidentalMode}
               startFret={startFret}
+              minStartFret={minStartFret}
               maxStartFret={maxStartFret}
               positionSpan={positionSpan}
-              onStartFretChange={setStartFret}
+              onStartFretChange={handleStartFretChange}
               onPositionSpanChange={(span) => setPositionSpan(Math.min(span, TOTAL_FRETS - 1))}
               hoveredChordId={hoveredChordId}
               selectedChordId={selectedChordId}

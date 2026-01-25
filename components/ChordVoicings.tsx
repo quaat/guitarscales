@@ -10,6 +10,7 @@ interface ChordVoicingsProps {
   sevenths: DiatonicChord[];
   accidentalMode: AccidentalMode;
   startFret: number;
+  minStartFret: number;
   maxStartFret: number;
   positionSpan: number;
   onStartFretChange: (fret: number) => void;
@@ -167,6 +168,7 @@ export const ChordVoicings: React.FC<ChordVoicingsProps> = ({
   sevenths,
   accidentalMode,
   startFret,
+  minStartFret,
   maxStartFret,
   positionSpan,
   onStartFretChange,
@@ -207,7 +209,14 @@ export const ChordVoicings: React.FC<ChordVoicingsProps> = ({
   };
 
   const handleFindNearest = (chord: DiatonicChord) => {
-    const nearest = findNearestVoicingPosition(chord, startFret, positionSpan, maxStartFret, accidentalMode);
+    const nearest = findNearestVoicingPosition(
+      chord,
+      startFret,
+      positionSpan,
+      minStartFret,
+      maxStartFret,
+      accidentalMode
+    );
     if (nearest !== null) {
       onStartFretChange(nearest);
     }
@@ -230,7 +239,7 @@ export const ChordVoicings: React.FC<ChordVoicingsProps> = ({
             <div className="flex items-center gap-2">
               <input
                 type="range"
-                min={1}
+                min={minStartFret}
                 max={maxStartFret}
                 value={startFret}
                 onChange={(event) => onStartFretChange(Number(event.target.value))}
