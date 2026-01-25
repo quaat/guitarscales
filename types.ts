@@ -22,6 +22,45 @@ export interface FretboardPosition {
 export type LabelMode = 'note' | 'degree';
 export type AccidentalMode = 'sharp' | 'flat';
 
+export type ChordType = 'triad' | 'seventh';
+
+export type ChordQuality =
+  | 'major'
+  | 'minor'
+  | 'diminished'
+  | 'augmented'
+  | 'maj7'
+  | 'dominant7'
+  | 'min7'
+  | 'halfDim7'
+  | 'dim7'
+  | 'minMaj7'
+  | 'aug7'
+  | 'unknown';
+
+export interface DiatonicChord {
+  id: string;
+  type: ChordType;
+  degreeIndex: number;
+  root: PitchClass;
+  tones: PitchClass[];
+  intervals: number[];
+  quality: ChordQuality;
+  name: string;
+  degreeLabel: string;
+  toneNames: string[];
+  requiredIntervals: number[];
+}
+
+export interface ChordVoicing {
+  strings: Array<number | 'x'>;
+  fretSpan: { min: number; max: number } | null;
+  tones: Array<string | null>;
+  stringPitches: Array<PitchClass | null>;
+  windowStart: number;
+  windowEnd: number;
+}
+
 export interface ScaleState {
   rootNote: PitchClass;
   scaleId: string;

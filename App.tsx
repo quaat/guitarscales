@@ -2,11 +2,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Controls } from './components/Controls';
 import { Fretboard } from './components/Fretboard';
 import { ScaleInfo } from './components/ScaleInfo';
+import { ChordVoicings } from './components/ChordVoicings';
 import scalesData from './config/scales';
 import scaleDescriptions from './config/scaleDescriptions.json';
 import { ScaleConfig, LabelMode, AccidentalMode } from './types';
 import { calculateScaleData } from './lib/musicTheory';
-import { Music, Github, Share2 } from 'lucide-react';
+import { buildDiatonicChords } from './lib/chords';
+import { TOTAL_FRETS } from './lib/constants';
+import { Music, Share2 } from 'lucide-react';
 
 const App: React.FC = () => {
   // --- State ---
@@ -15,6 +18,10 @@ const App: React.FC = () => {
   const [modeIndex, setModeIndex] = useState<number>(0);
   const [labelMode, setLabelMode] = useState<LabelMode>('note');
   const [accidentalMode, setAccidentalMode] = useState<AccidentalMode>('sharp');
+  const [startFret, setStartFret] = useState<number>(1);
+  const [positionSpan, setPositionSpan] = useState<number>(4);
+  const [hoveredChordId, setHoveredChordId] = useState<string | null>(null);
+  const [selectedChordId, setSelectedChordId] = useState<string | null>(null);
 
   // --- Load Config ---
   const scales: ScaleConfig[] = scalesData;
@@ -39,10 +46,34 @@ const App: React.FC = () => {
     calculateScaleData(rootNote, currentScale, modeIndex),
   [rootNote, currentScale, modeIndex]);
 
-  const currentModeName = currentScale.modeNames 
-    ? currentScale.modeNames[modeIndex] 
+  const currentModeName = currentScale.modeNames
+    ? currentScale.modeNames[modeIndex]
     : currentScale.name;
   const scaleDescription = scaleDescriptionsMap[currentScale.id] || '';
+
+  const { triads, sevenths } = useMemo(
+    () => buildDiatonicChords(scaleData, accidentalMode),
+    [scaleData, accidentalMode]
+  );
+  const allChords = useMemo(() => [...triads, ...sevenths], [triads, sevenths]);
+  const chordById = useMemo(() => {
+    return new Map(allChords.map((chord) => [chord.id, chord]));
+  }, [allChords]);
+
+  const maxStartFret = useMemo(
+    () => Math.max(0, TOTAL_FRETS - (positionSpan + 1)),
+    [positionSpan]
+  );
+
+  const activeChord = useMemo(() => {
+    if (hoveredChordId && chordById.has(hoveredChordId)) {
+      return chordById.get(hoveredChordId) || null;
+    }
+    if (selectedChordId && chordById.has(selectedChordId)) {
+      return chordById.get(selectedChordId) || null;
+    }
+    return null;
+  }, [hoveredChordId, selectedChordId, chordById]);
 
   // --- Handlers ---
   const handleReset = () => {
@@ -51,6 +82,10 @@ const App: React.FC = () => {
     setModeIndex(0);
     setLabelMode('note');
     setAccidentalMode('sharp');
+    setStartFret(1);
+    setPositionSpan(4);
+    setHoveredChordId(null);
+    setSelectedChordId(null);
   };
 
   const handleShare = () => {
@@ -78,6 +113,21 @@ const App: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (startFret > maxStartFret) {
+      setStartFret(maxStartFret);
+    }
+  }, [startFret, maxStartFret]);
+
+  useEffect(() => {
+    if (selectedChordId && !chordById.has(selectedChordId)) {
+      setSelectedChordId(null);
+    }
+    if (hoveredChordId && !chordById.has(hoveredChordId)) {
+      setHoveredChordId(null);
+    }
+  }, [selectedChordId, hoveredChordId, chordById]);
+
   return (
     <div className="min-h-screen bg-background text-slate-200 font-sans selection:bg-primary/30">
 
@@ -102,9 +152,7 @@ const App: React.FC = () => {
              >
                <Share2 size={18} />
              </button>
-             <a href="#" className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800 border border-slate-700 text-xs font-medium text-slate-300 hover:bg-slate-700 transition-colors">
-               <Github size={14} /> <span>GitHub</span>
-             </a>
+
           </div>
         </div>
       </header>
@@ -148,7 +196,7 @@ const App: React.FC = () => {
           <section className="flex-1 min-w-0 space-y-6 lg:pr-6">
 
             {/* Scale Info Card */}
-            <ScaleInfo 
+            <ScaleInfo
               data={scaleData}
               scaleName={currentScale.name}
               modeName={currentModeName}
@@ -166,9 +214,26 @@ const App: React.FC = () => {
                     data={scaleData}
                     labelMode={labelMode}
                     accidentalMode={accidentalMode}
+                    highlightNotes={activeChord?.tones}
+                    highlightRoot={activeChord?.root}
                   />
                </div>
             </div>
+
+            <ChordVoicings
+              triads={triads}
+              sevenths={sevenths}
+              accidentalMode={accidentalMode}
+              startFret={startFret}
+              maxStartFret={maxStartFret}
+              positionSpan={positionSpan}
+              onStartFretChange={setStartFret}
+              onPositionSpanChange={(span) => setPositionSpan(Math.min(span, TOTAL_FRETS - 1))}
+              hoveredChordId={hoveredChordId}
+              selectedChordId={selectedChordId}
+              onHoverChord={setHoveredChordId}
+              onSelectChord={setSelectedChordId}
+            />
 
             <div className="text-center text-xs text-slate-600 mt-8">
               <p>Fretboard visualization uses Standard Tuning (E A D G B E).</p>
