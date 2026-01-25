@@ -108,24 +108,26 @@ export const Fretboard: React.FC<FretboardProps> = ({ data, labelMode, accidenta
                    // So we just center the content in the flex cell.
                    
                    return (
-                     <div key={fretIndex} className="flex-1 flex justify-center items-center z-10 relative h-full group">
+                     <div key={fretIndex} className="flex-1 flex justify-center items-center z-10 relative h-full">
                         {isInScale && (
-                          <div 
-                             className={`
-                               relative flex items-center justify-center
-                               w-7 h-7 sm:w-8 sm:h-8 rounded-full shadow-md cursor-help transition-all duration-300
-                               ${isRoot 
-                                  ? 'bg-primary text-slate-900 ring-2 ring-primary/50 ring-offset-2 ring-offset-[#161b22] font-bold scale-110' 
-                                  : 'bg-surface text-slate-200 border border-slate-600 hover:border-slate-400 hover:scale-110 hover:bg-slate-700'
-                               }
-                             `}
-                          >
-                            <span className="text-[10px] sm:text-xs font-mono">
-                              {labelMode === 'note' ? noteName : degree}
-                            </span>
+                          <div className="relative flex items-center justify-center">
+                            <div 
+                               className={`
+                                 peer relative flex items-center justify-center
+                                 w-7 h-7 sm:w-8 sm:h-8 rounded-full shadow-md cursor-help transition-all duration-300
+                                 ${isRoot 
+                                    ? 'bg-primary text-slate-900 ring-2 ring-primary/50 ring-offset-2 ring-offset-[#161b22] font-bold scale-110' 
+                                    : 'bg-surface text-slate-200 border border-slate-600 hover:border-slate-400 hover:scale-110 hover:bg-slate-700'
+                                 }
+                               `}
+                            >
+                              <span className="text-[10px] sm:text-xs font-mono">
+                                {labelMode === 'note' ? noteName : degree}
+                              </span>
+                            </div>
 
                             {/* Tooltip */}
-                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max px-3 py-1.5 bg-slate-900 text-white text-xs rounded-md shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 border border-slate-700 flex flex-col items-center gap-0.5">
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max px-3 py-1.5 bg-slate-900 text-white text-xs rounded-md shadow-xl opacity-0 peer-hover:opacity-100 transition-opacity pointer-events-none z-50 border border-slate-700 flex flex-col items-center gap-0.5">
                                <span className="font-bold text-primary">{noteName}</span>
                                <span className="text-slate-400 text-[10px] uppercase tracking-wide">
                                  {degree} • {isRoot ? 'Root' : 'Interval'}
