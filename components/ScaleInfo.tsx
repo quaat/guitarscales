@@ -7,10 +7,14 @@ interface ScaleInfoProps {
   scaleName: string;
   modeName: string;
   accidentalMode: AccidentalMode;
+  description?: string;
 }
 
-export const ScaleInfo: React.FC<ScaleInfoProps> = ({ data, scaleName, modeName, accidentalMode }) => {
+export const ScaleInfo: React.FC<ScaleInfoProps> = ({ data, scaleName, modeName, accidentalMode, description }) => {
   const rootNoteName = getNoteName(data.rootNote, accidentalMode);
+  const descriptionText = description?.trim()
+    ? description
+    : `Selected root: ${rootNoteName}.`;
   
   return (
     <div className="bg-surface rounded-xl p-6 border border-slate-700/50 backdrop-blur-sm">
@@ -39,8 +43,7 @@ export const ScaleInfo: React.FC<ScaleInfoProps> = ({ data, scaleName, modeName,
       </div>
       
       <p className="text-xs text-slate-500 leading-relaxed max-w-2xl">
-        This pattern repeats across the fretboard. The <span className="text-primary font-bold">1</span> represents the root note ({rootNoteName}). 
-        Use the controls to toggle between note names and scale degrees.
+        {descriptionText}
       </p>
     </div>
   );

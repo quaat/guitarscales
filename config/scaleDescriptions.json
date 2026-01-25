@@ -1,0 +1,10 @@
+{
+  "major": "Major (Ionian) is the seven-note diatonic scale that underpins Western harmony. Interval pattern: W-W-H-W-W-W-H. Often described as bright and stable, it defines major keys.",
+  "harmonic_minor": "Harmonic Minor raises the 7th degree of natural minor to create a strong leading tone and enable a major V (or V7) in minor keys. It features an augmented 2nd between b6 and 7, giving a dramatic, distinctive color.",
+  "melodic_minor": "Melodic Minor (ascending) raises the 6th and 7th degrees of natural minor to smooth the pull to the tonic (1-2-b3-4-5-6-7). In classical use it often descends as natural minor; in jazz it’s commonly used the same ascending form both ways and yields modes like Lydian Dominant (4th mode) and Altered (7th mode).",
+  "minor_pentatonic": "Minor Pentatonic is a five-note scale (1-b3-4-5-b7) central to blues and rock phrasing. It contains no semitone steps, giving an open sound that bends and sequences well on guitar and voice.",
+  "major_pentatonic": "Major Pentatonic is the major scale without the 4th and 7th degrees (1-2-3-5-6). It’s common in folk, country, pop, and many world traditions for its smooth, singable character.",
+  "blues": "The Blues scale is the minor pentatonic plus the b5 “blue note” (1-b3-4-b5-5-b7), a six-note (hexatonic) set that adds bite and tension. Common in blues, rock, and funk phrasing over dominant and minor tonal centers.",
+  "whole_tone": "Whole Tone is a six-note symmetric scale built entirely from whole steps (W-W-W-W-W-W). With no leading tone, it sounds floating and ambiguous, often used over augmented chords and dominant #5/#11 colors.",
+  "diminished_wh": "Whole-Half Diminished is an eight-note symmetric (octatonic) scale alternating whole and half steps starting with a whole step: W-H-W-H-W-H-W-H. Commonly used over fully diminished 7th (dim7) chords; the related Half-Whole form is often used over dominant 7b9 sounds."
+}

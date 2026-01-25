@@ -1,4 +1,4 @@
-# ScaleCanvas Agent Guide
+# GuitarScales Agent Guide
 
 ## Project summary
 - Interactive guitar scale visualizer built with React 19, TypeScript, and Vite.
