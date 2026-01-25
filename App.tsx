@@ -80,7 +80,7 @@ const App: React.FC = () => {
       
       {/* Header */}
       <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+        <div className="w-full px-4 sm:px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="bg-gradient-to-tr from-primary to-accent p-2 rounded-lg">
               <Music className="text-white h-5 w-5" />
@@ -106,12 +106,10 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8 animate-fade-in">
-        
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          
+      <main className="w-full px-4 lg:px-0 py-8 animate-fade-in">
+        <div className="flex flex-col lg:flex-row gap-8 w-full">
           {/* Left Panel: Controls */}
-          <div className="lg:col-span-3 lg:sticky lg:top-24 h-fit z-40">
+          <aside className="w-full lg:w-[320px] lg:sticky lg:top-24 h-fit z-40 shrink-0">
             <Controls 
               scales={scales}
               selectedScaleId={selectedScaleId}
@@ -141,10 +139,10 @@ const App: React.FC = () => {
                 </div>
               </div>
             </div>
-          </div>
+          </aside>
 
           {/* Right Panel: Visualization */}
-          <div className="lg:col-span-9 space-y-6">
+          <section className="flex-1 min-w-0 space-y-6 lg:pr-6">
             
             {/* Scale Info Card */}
             <ScaleInfo 
@@ -171,7 +169,7 @@ const App: React.FC = () => {
             <div className="text-center text-xs text-slate-600 mt-8">
               <p>Fretboard visualization uses Standard Tuning (E A D G B E).</p>
             </div>
-          </div>
+          </section>
         </div>
       </main>
     </div>
