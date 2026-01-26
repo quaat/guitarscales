@@ -7,7 +7,7 @@ import scalesData from './config/scales';
 import scaleDescriptions from './config/scaleDescriptions.json';
 import { ScaleConfig, LabelMode, AccidentalMode } from './types';
 import { calculateScaleData } from './lib/musicTheory';
-import { buildDiatonicChords } from './lib/chords';
+import { buildDiatonicChords, generateChordVoicings } from './lib/chords';
 import { TOTAL_FRETS } from './lib/constants';
 import { Music, Share2 } from 'lucide-react';
 
@@ -19,9 +19,10 @@ const App: React.FC = () => {
   const [labelMode, setLabelMode] = useState<LabelMode>('note');
   const [accidentalMode, setAccidentalMode] = useState<AccidentalMode>('sharp');
   const [startFret, setStartFret] = useState<number>(1);
-  const [positionSpan, setPositionSpan] = useState<number>(4);
+  const [positionSpan, setPositionSpan] = useState<number>(3);
   const [hoveredChordId, setHoveredChordId] = useState<string | null>(null);
   const [selectedChordId, setSelectedChordId] = useState<string | null>(null);
+  const [voicingSelections, setVoicingSelections] = useState<Record<string, number>>({});
   const minStartFret = 1;
 
   // --- Load Config ---
@@ -76,6 +77,32 @@ const App: React.FC = () => {
     return null;
   }, [hoveredChordId, selectedChordId, chordById]);
 
+  const activeVoicing = useMemo(() => {
+    if (!activeChord) {
+      return null;
+    }
+    const voicings = generateChordVoicings(activeChord, startFret, positionSpan, accidentalMode);
+    if (!voicings.length) {
+      return null;
+    }
+    const index = voicingSelections[activeChord.id] ?? 0;
+    return voicings[Math.min(index, voicings.length - 1)] || null;
+  }, [activeChord, startFret, positionSpan, accidentalMode, voicingSelections]);
+
+  const activeVoicingPitches = useMemo(() => {
+    if (!activeVoicing) {
+      return undefined;
+    }
+    return activeVoicing.stringPitches.filter((pitch): pitch is number => pitch !== null);
+  }, [activeVoicing]);
+
+  const activeHighlightNotes = useMemo(() => {
+    if (activeVoicingPitches && activeVoicingPitches.length) {
+      return activeVoicingPitches;
+    }
+    return activeChord?.tones;
+  }, [activeVoicingPitches, activeChord]);
+
   // --- Handlers ---
   const handleReset = () => {
     setRootNote(0); // C
@@ -84,9 +111,10 @@ const App: React.FC = () => {
     setLabelMode('note');
     setAccidentalMode('sharp');
     setStartFret(minStartFret);
-    setPositionSpan(4);
+    setPositionSpan(3);
     setHoveredChordId(null);
     setSelectedChordId(null);
+    setVoicingSelections({});
   };
 
   const handleShare = () => {
@@ -113,6 +141,10 @@ const App: React.FC = () => {
     if (a === 'sharp' || a === 'flat') setAccidentalMode(a as AccidentalMode);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    setVoicingSelections({});
+  }, [rootNote, selectedScaleId, modeIndex, startFret, positionSpan, accidentalMode]);
 
   const handleStartFretChange = (value: number) => {
     const clamped = Math.min(Math.max(value, minStartFret), maxStartFret);
@@ -224,7 +256,7 @@ const App: React.FC = () => {
                     data={scaleData}
                     labelMode={labelMode}
                     accidentalMode={accidentalMode}
-                    highlightNotes={activeChord?.tones}
+                    highlightNotes={activeHighlightNotes}
                     highlightRoot={activeChord?.root}
                   />
                </div>
@@ -240,6 +272,10 @@ const App: React.FC = () => {
               positionSpan={positionSpan}
               onStartFretChange={handleStartFretChange}
               onPositionSpanChange={(span) => setPositionSpan(Math.min(span, TOTAL_FRETS - 1))}
+              voicingSelections={voicingSelections}
+              onVoicingSelect={(chordId, index) =>
+                setVoicingSelections((current) => ({ ...current, [chordId]: index }))
+              }
               hoveredChordId={hoveredChordId}
               selectedChordId={selectedChordId}
               onHoverChord={setHoveredChordId}

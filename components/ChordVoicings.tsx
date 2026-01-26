@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { AccidentalMode, ChordVoicing, DiatonicChord, PitchClass } from '../types';
-import { generateChordVoicing, findNearestVoicingPosition } from '../lib/chords';
+import { generateChordVoicings, findNearestVoicingPosition } from '../lib/chords';
 
 type FilterMode = 'all' | 'triad' | 'seventh';
 type DensityMode = 'comfortable' | 'compact';
@@ -15,6 +15,8 @@ interface ChordVoicingsProps {
   positionSpan: number;
   onStartFretChange: (fret: number) => void;
   onPositionSpanChange: (span: number) => void;
+  voicingSelections: Record<string, number>;
+  onVoicingSelect: (chordId: string, index: number) => void;
   hoveredChordId: string | null;
   selectedChordId: string | null;
   onHoverChord: (id: string | null) => void;
@@ -52,17 +54,17 @@ const formatToneSummary = (voicing: ChordVoicing | null, chord: DiatonicChord): 
 const ChordDiagram: React.FC<{
   voicing: ChordVoicing;
   startFret: number;
-  span: number;
   root: PitchClass;
   compact: boolean;
-}> = ({ voicing, startFret, span, root, compact }) => {
+}> = ({ voicing, startFret, root, compact }) => {
   const width = compact ? 110 : 130;
   const height = compact ? 140 : 165;
   const paddingTop = 20;
   const paddingBottom = 18;
   const paddingLeft = 18;
   const paddingRight = 18;
-  const fretCount = Math.max(5, span + 1);
+  const windowSpan = Math.max(0, voicing.windowEnd - voicing.windowStart);
+  const fretCount = Math.max(4, windowSpan + 1);
   const gridWidth = width - paddingLeft - paddingRight;
   const gridHeight = height - paddingTop - paddingBottom;
   const stringSpacing = gridWidth / 5;
@@ -172,7 +174,8 @@ export const ChordVoicings: React.FC<ChordVoicingsProps> = ({
   maxStartFret,
   positionSpan,
   onStartFretChange,
-  onPositionSpanChange,
+  voicingSelections,
+  onVoicingSelect,
   hoveredChordId,
   selectedChordId,
   onHoverChord,
@@ -195,7 +198,7 @@ export const ChordVoicings: React.FC<ChordVoicingsProps> = ({
     () =>
       chords.map((chord) => ({
         chord,
-        voicing: generateChordVoicing(chord, startFret, positionSpan, accidentalMode),
+        voicings: generateChordVoicings(chord, startFret, positionSpan, accidentalMode),
       })),
     [chords, startFret, positionSpan, accidentalMode]
   );
@@ -280,7 +283,7 @@ export const ChordVoicings: React.FC<ChordVoicingsProps> = ({
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div>
             <h3 className="text-base sm:text-lg font-semibold text-slate-100">Chord Voicings</h3>
-            <p className="text-xs text-slate-500">Playable shapes around the selected start fret.</p>
+            <p className="text-xs text-slate-500">Playable shapes within a 4-fret window from the selected start fret.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <div className="flex rounded-full border border-slate-700 overflow-hidden">
@@ -314,8 +317,10 @@ export const ChordVoicings: React.FC<ChordVoicingsProps> = ({
               : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
           }`}
         >
-          {chordEntries.map(({ chord, voicing }) => {
+          {chordEntries.map(({ chord, voicings }) => {
             const isActive = hoveredChordId === chord.id || selectedChordId === chord.id;
+            const activeIndex = Math.min(voicingSelections[chord.id] ?? 0, Math.max(voicings.length - 1, 0));
+            const activeVoicing = voicings[activeIndex] || null;
             return (
               <div
                 key={chord.id}
@@ -344,26 +349,25 @@ export const ChordVoicings: React.FC<ChordVoicingsProps> = ({
                   <span className="text-[10px] text-slate-500 font-mono">{accidentalMode === 'sharp' ? '#' : 'b'}</span>
                 </div>
 
-                {voicing ? (
+                {activeVoicing ? (
                   <ChordDiagram
-                    voicing={voicing}
+                    voicing={activeVoicing}
                     startFret={startFret}
-                    span={positionSpan}
                     root={chord.root}
                     compact={densityMode === 'compact'}
                   />
                 ) : (
                   <div className="flex flex-col items-center justify-center text-xs text-slate-500 border border-dashed border-slate-700 rounded-lg h-[140px] gap-2">
-                    <span>No easy voicing in this position.</span>
+                    <span>No playable voicing in this position (within 4 frets).</span>
                     <div className="flex gap-2">
                       <button
                         onClick={(event) => {
                           event.stopPropagation();
-                          onPositionSpanChange(positionSpan + 2);
+                          onStartFretChange(Math.min(startFret + 1, maxStartFret));
                         }}
                         className="px-2 py-1 rounded bg-slate-800 text-slate-300 hover:text-white"
                       >
-                        Widen range (+2)
+                        Try next position
                       </button>
                       <button
                         onClick={(event) => {
@@ -378,8 +382,35 @@ export const ChordVoicings: React.FC<ChordVoicingsProps> = ({
                   </div>
                 )}
 
+                {voicings.length > 1 && (
+                  <div className="mt-3 flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      {voicings.map((_, index) => {
+                        const isSelected = index === activeIndex;
+                        return (
+                          <button
+                            key={`${chord.id}-dot-${index}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onVoicingSelect(chord.id, index);
+                              onSelectChord(chord.id);
+                            }}
+                            aria-label={`Show voicing ${index + 1} of ${voicings.length}`}
+                            className={`h-2 w-2 rounded-full transition ${
+                              isSelected ? 'bg-primary' : 'bg-slate-700 hover:bg-slate-500'
+                            }`}
+                          />
+                        );
+                      })}
+                    </div>
+                    <span className="text-[10px] text-slate-500 font-mono">
+                      {activeIndex + 1} / {voicings.length}
+                    </span>
+                  </div>
+                )}
+
                 <div className="mt-3 text-[10px] text-slate-500 font-mono uppercase tracking-wide">
-                  Tones: <span className="text-slate-300">{formatToneSummary(voicing, chord)}</span>
+                  Tones: <span className="text-slate-300">{formatToneSummary(activeVoicing, chord)}</span>
                 </div>
               </div>
             );

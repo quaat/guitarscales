@@ -4,7 +4,9 @@ import { AccidentalMode, ChordQuality, ChordType, DiatonicChord, ChordVoicing, P
 
 const ROMAN_NUMERALS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
 
-const voicingCache = new Map<string, ChordVoicing | null>();
+const voicingCache = new Map<string, ChordVoicing[]>();
+const WINDOW_FRET_SPAN = 3;
+const MAX_VOICINGS_PER_POSITION = 3;
 
 const getTriadQuality = (intervals: number[]): ChordQuality => {
   const key = intervals.join(',');
@@ -218,21 +220,80 @@ const getVoicingCacheKey = (
   return `${chord.id}-${chord.root}-${chord.tones.join(',')}-${startFret}-${span}-${accidentalMode}`;
 };
 
-export const generateChordVoicing = (
+const getFifthIntervals = (chord: DiatonicChord): number[] => {
+  return chord.intervals.filter((interval) => interval === 6 || interval === 7 || interval === 8);
+};
+
+const hasFifth = (voicing: ChordVoicing, chord: DiatonicChord): boolean => {
+  const fifthIntervals = new Set(getFifthIntervals(chord));
+  return voicing.stringPitches.some((pitch) => {
+    if (pitch === null) {
+      return false;
+    }
+    const interval = normalizePitch(pitch - chord.root);
+    return fifthIntervals.has(interval);
+  });
+};
+
+const getMuteRequiredIntervals = (chord: DiatonicChord): Set<number> => {
+  const third = chord.intervals.find((interval) => interval === 3 || interval === 4);
+  const fifths = getFifthIntervals(chord);
+  if (chord.type === 'triad') {
+    return new Set([0, ...(typeof third === 'number' ? [third] : []), ...fifths]);
+  }
+  const seventh = chord.intervals.find((interval) => interval === 9 || interval === 10 || interval === 11);
+  return new Set([0, ...(typeof third === 'number' ? [third] : []), ...(typeof seventh === 'number' ? [seventh] : [])]);
+};
+
+const getVoicingScore = (voicing: ChordVoicing, chord: DiatonicChord, targetStrings: number): number => {
+  const frets = voicing.strings.filter((fret) => fret !== 'x') as number[];
+  if (!frets.length) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const minFret = Math.min(...frets);
+  const maxFret = Math.max(...frets);
+  const spanPenalty = (maxFret - minFret) * 2;
+  const mutedCount = voicing.strings.filter((fret) => fret === 'x').length;
+
+  let jumpPenalty = 0;
+  for (let i = 0; i < voicing.strings.length - 1; i += 1) {
+    const current = voicing.strings[i];
+    const next = voicing.strings[i + 1];
+    if (current !== 'x' && next !== 'x') {
+      const diff = Math.abs(current - next);
+      if (diff > 3) {
+        jumpPenalty += diff - 3;
+      }
+    }
+  }
+
+  const bassIndex = voicing.strings.findIndex((fret) => fret !== 'x');
+  const bassPitch = bassIndex >= 0 ? voicing.stringPitches[bassIndex] : null;
+  const bassPenalty = bassPitch !== null && bassPitch !== chord.root ? 2 : 0;
+
+  const stringPenalty = Math.abs(targetStrings - frets.length);
+  const fifthPenalty = chord.type === 'seventh' && !hasFifth(voicing, chord) ? 2 : 0;
+
+  return spanPenalty + jumpPenalty + mutedCount + bassPenalty + stringPenalty + fifthPenalty;
+};
+
+export const generateChordVoicings = (
   chord: DiatonicChord,
   startFret: number,
   span: number,
   accidentalMode: AccidentalMode
-): ChordVoicing | null => {
+): ChordVoicing[] => {
   const cacheKey = getVoicingCacheKey(chord, startFret, span, accidentalMode);
   if (voicingCache.has(cacheKey)) {
-    return voicingCache.get(cacheKey) || null;
+    return voicingCache.get(cacheKey) || [];
   }
 
-  const allowOpen = startFret <= 1;
+  const allowOpen = startFret === 1;
   const windowStart = allowOpen ? 0 : startFret;
-  const windowEnd = Math.min(startFret + span, TOTAL_FRETS - 1);
+  const windowEnd = Math.min(allowOpen ? 3 : startFret + WINDOW_FRET_SPAN, TOTAL_FRETS - 1);
   const toneSet = new Set<PitchClass>(chord.tones);
+  const muteRequiredIntervals = getMuteRequiredIntervals(chord);
   const candidatesPerString: CandidateFret[][] = STANDARD_TUNING.map((openPitch) => {
     const candidates: CandidateFret[] = [];
     for (let fret = windowStart; fret <= windowEnd; fret += 1) {
@@ -243,18 +304,27 @@ export const generateChordVoicing = (
     }
     return candidates;
   });
+  const hasRequiredToneOnString = STANDARD_TUNING.map((openPitch) => {
+    for (let fret = windowStart; fret <= windowEnd; fret += 1) {
+      const interval = normalizePitch(openPitch + fret - chord.root);
+      if (muteRequiredIntervals.has(interval)) {
+        return true;
+      }
+    }
+    return false;
+  });
 
-  let bestVoicing: ChordVoicing | null = null;
-  let bestScore = Number.POSITIVE_INFINITY;
+  const voicings: ChordVoicing[] = [];
+  const seenPatterns = new Set<string>();
 
-  const minStrings = chord.type === 'seventh' ? 3 : 3;
+  const minStrings = 3;
   const maxStrings = 6;
   const targetStrings = chord.type === 'seventh' ? 4 : 3;
   const requiredIntervals = new Set(chord.requiredIntervals);
 
   const selection: Array<CandidateFret | null> = new Array(6).fill(null);
 
-  const scoreCandidate = () => {
+  const recordCandidate = () => {
     const activeStrings = selection.filter((value) => value !== null) as CandidateFret[];
     const activeCount = activeStrings.length;
     if (activeCount < minStrings || activeCount > maxStrings) {
@@ -262,23 +332,14 @@ export const generateChordVoicing = (
     }
 
     const intervalsPresent = new Set<number>();
-    const pitchClassesPresent: PitchClass[] = [];
     const frets: number[] = [];
-    let mutedCount = 0;
-    let bassPitch: PitchClass | null = null;
-
     selection.forEach((choice, stringIndex) => {
       if (!choice) {
-        mutedCount += 1;
         return;
       }
       const interval = normalizePitch(choice.pitchClass - chord.root);
       intervalsPresent.add(interval);
-      pitchClassesPresent.push(choice.pitchClass);
       frets.push(choice.fret);
-      if (bassPitch === null) {
-        bassPitch = choice.pitchClass;
-      }
     });
 
     let missingRequired = false;
@@ -293,52 +354,41 @@ export const generateChordVoicing = (
 
     const minFret = Math.min(...frets);
     const maxFret = Math.max(...frets);
-    const spanPenalty = (maxFret - minFret) * 2;
+    if (maxFret - minFret > WINDOW_FRET_SPAN) {
+      return;
+    }
 
-    let jumpPenalty = 0;
-    for (let i = 0; i < selection.length - 1; i += 1) {
-      const current = selection[i];
-      const next = selection[i + 1];
-      if (current && next) {
-        const diff = Math.abs(current.fret - next.fret);
-        if (diff > 3) {
-          jumpPenalty += diff - 3;
-        }
+    const toneNames: Array<string | null> = selection.map((choice) =>
+      choice ? getNoteName(choice.pitchClass, accidentalMode) : null
+    );
+    const stringPitches: Array<PitchClass | null> = selection.map((choice) =>
+      choice ? choice.pitchClass : null
+    );
+    const strings = selection.map((choice) => (choice ? choice.fret : 'x'));
+    for (let stringIndex = 0; stringIndex < strings.length; stringIndex += 1) {
+      if (strings[stringIndex] === 'x' && hasRequiredToneOnString[stringIndex]) {
+        return;
       }
     }
-
-    const missingFifth = !intervalsPresent.has(7) && !intervalsPresent.has(6) && !intervalsPresent.has(8);
-    const fifthPenalty = chord.type === 'seventh' && missingFifth ? 2 : 0;
-
-    const bassPenalty = bassPitch !== null && bassPitch !== chord.root ? 2 : 0;
-    const stringPenalty = Math.abs(targetStrings - activeCount);
-
-    const score = spanPenalty + jumpPenalty + mutedCount + fifthPenalty + bassPenalty + stringPenalty;
-    if (score < bestScore) {
-      bestScore = score;
-      bestVoicing = null;
-
-      const toneNames: Array<string | null> = selection.map((choice) =>
-        choice ? getNoteName(choice.pitchClass, accidentalMode) : null
-      );
-      const stringPitches: Array<PitchClass | null> = selection.map((choice) =>
-        choice ? choice.pitchClass : null
-      );
-
-      bestVoicing = {
-        strings: selection.map((choice) => (choice ? choice.fret : 'x')),
-        fretSpan: { min: minFret, max: maxFret },
-        tones: toneNames,
-        stringPitches,
-        windowStart: startFret,
-        windowEnd,
-      };
+    const pattern = strings.join('-');
+    if (seenPatterns.has(pattern)) {
+      return;
     }
+    seenPatterns.add(pattern);
+
+    voicings.push({
+      strings,
+      fretSpan: { min: minFret, max: maxFret },
+      tones: toneNames,
+      stringPitches,
+      windowStart: startFret,
+      windowEnd,
+    });
   };
 
   const walk = (stringIndex: number, activeCount: number) => {
     if (stringIndex === 6) {
-      scoreCandidate();
+      recordCandidate();
       return;
     }
 
@@ -360,8 +410,34 @@ export const generateChordVoicing = (
 
   walk(0, 0);
 
-  voicingCache.set(cacheKey, bestVoicing);
-  return bestVoicing;
+  let filteredVoicings = voicings;
+  if (chord.type === 'triad') {
+    const hasCompleteTriad = voicings.some((voicing) => hasFifth(voicing, chord));
+    if (hasCompleteTriad) {
+      filteredVoicings = voicings.filter((voicing) => hasFifth(voicing, chord));
+    }
+  }
+
+  const scored = filteredVoicings
+    .map((voicing) => ({
+      voicing,
+      score: getVoicingScore(voicing, chord, targetStrings),
+    }))
+    .sort((a, b) => a.score - b.score);
+  const sortedVoicings = scored.map((entry) => entry.voicing).slice(0, MAX_VOICINGS_PER_POSITION);
+
+  voicingCache.set(cacheKey, sortedVoicings);
+  return sortedVoicings;
+};
+
+export const generateChordVoicing = (
+  chord: DiatonicChord,
+  startFret: number,
+  span: number,
+  accidentalMode: AccidentalMode
+): ChordVoicing | null => {
+  const voicings = generateChordVoicings(chord, startFret, span, accidentalMode);
+  return voicings[0] || null;
 };
 
 export const findNearestVoicingPosition = (
@@ -376,14 +452,14 @@ export const findNearestVoicingPosition = (
     const lower = startFret - offset;
     const upper = startFret + offset;
     if (lower >= minStartFret) {
-      const voicing = generateChordVoicing(chord, lower, span, accidentalMode);
-      if (voicing) {
+      const voicings = generateChordVoicings(chord, lower, span, accidentalMode);
+      if (voicings.length) {
         return lower;
       }
     }
     if (upper <= maxStartFret && upper >= minStartFret) {
-      const voicing = generateChordVoicing(chord, upper, span, accidentalMode);
-      if (voicing) {
+      const voicings = generateChordVoicings(chord, upper, span, accidentalMode);
+      if (voicings.length) {
         return upper;
       }
     }
