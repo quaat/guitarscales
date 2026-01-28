@@ -152,6 +152,13 @@ const App: React.FC = () => {
     return null;
   }, [hoveredChordId, selectedChordId, chordById]);
 
+  const selectedChordForEmphasis = useMemo(() => {
+    if (!selectedChordId) {
+      return null;
+    }
+    return chordById.get(selectedChordId) || null;
+  }, [selectedChordId, chordById]);
+
   const activeVoicing = useMemo(() => {
     if (!activeChord) {
       return null;
@@ -192,6 +199,16 @@ const App: React.FC = () => {
     }
     return currentProgressionStep.chordTones;
   }, [isPlaying, currentProgressionStep]);
+
+  const chordToneEmphasis = useMemo(() => {
+    if (selectedChordForEmphasis) {
+      return selectedChordForEmphasis.tones;
+    }
+    if (isPlaying && currentProgressionStep) {
+      return currentProgressionStep.chordTones;
+    }
+    return undefined;
+  }, [selectedChordForEmphasis, isPlaying, currentProgressionStep]);
 
   const activeProgressionChordId = useMemo(() => {
     if (!isPlaying || !currentProgressionStep) {
@@ -573,6 +590,7 @@ const App: React.FC = () => {
                     highlightNotes={activeHighlightNotes}
                     highlightRoot={activeChord?.root}
                     progressionChordTones={playbackChordTones}
+                    chordToneEmphasis={chordToneEmphasis}
                   />
                </div>
             </div>

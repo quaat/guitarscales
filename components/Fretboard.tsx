@@ -10,6 +10,7 @@ interface FretboardProps {
   highlightNotes?: PitchClass[];
   highlightRoot?: PitchClass;
   progressionChordTones?: PitchClass[];
+  chordToneEmphasis?: PitchClass[];
 }
 
 export const Fretboard: React.FC<FretboardProps> = ({
@@ -19,10 +20,13 @@ export const Fretboard: React.FC<FretboardProps> = ({
   highlightNotes,
   highlightRoot,
   progressionChordTones,
+  chordToneEmphasis,
 }) => {
   const { rootNote, notes, formula } = data;
   const highlightSet = highlightNotes ? new Set(highlightNotes) : null;
   const progressionSet = progressionChordTones ? new Set(progressionChordTones) : null;
+  const chordToneSet = chordToneEmphasis ? new Set(chordToneEmphasis) : null;
+  const isChordToneEmphasisActive = Boolean(chordToneSet && chordToneSet.size);
 
   // Helper to check if a note is in scale
   const getNoteInfo = (stringIndex: number, fretIndex: number) => {
@@ -38,8 +42,19 @@ export const Fretboard: React.FC<FretboardProps> = ({
     const isHighlighted = highlightSet ? highlightSet.has(currentPitch) : false;
     const isHighlightRoot = typeof highlightRoot === 'number' && highlightRoot === currentPitch;
     const isProgressionTone = progressionSet ? progressionSet.has(currentPitch) : false;
+    const isChordTone = chordToneSet ? chordToneSet.has(currentPitch) : false;
 
-    return { isInScale, isRoot, degree, noteName, currentPitch, isHighlighted, isHighlightRoot, isProgressionTone };
+    return {
+      isInScale,
+      isRoot,
+      degree,
+      noteName,
+      currentPitch,
+      isHighlighted,
+      isHighlightRoot,
+      isProgressionTone,
+      isChordTone,
+    };
   };
 
   return (
@@ -123,6 +138,7 @@ export const Fretboard: React.FC<FretboardProps> = ({
                      isHighlighted,
                      isHighlightRoot,
                      isProgressionTone,
+                     isChordTone,
                    } = getNoteInfo(stringIndex, fretIndex);
 
                    // The fret area. Notes are centered in the fret box (except nut).
@@ -139,6 +155,10 @@ export const Fretboard: React.FC<FretboardProps> = ({
                                className={`
                                  peer relative flex items-center justify-center
                                  w-7 h-7 sm:w-8 sm:h-8 rounded-full shadow-md cursor-help transition-all duration-300
+                                 ${isChordToneEmphasisActive && !isChordTone
+                                   ? 'opacity-30 hover:opacity-60 focus-visible:opacity-60 transition-opacity'
+                                   : ''
+                                 }
                                  ${isHighlightRoot
                                    ? 'ring-2 ring-primary/80 ring-offset-2 ring-offset-[#161b22]'
                                    : isHighlighted
