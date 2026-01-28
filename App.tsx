@@ -1,15 +1,41 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Controls } from './components/Controls';
 import { Fretboard } from './components/Fretboard';
 import { ScaleInfo } from './components/ScaleInfo';
 import { ChordVoicings } from './components/ChordVoicings';
+import { ProgressionControls } from './components/ProgressionControls';
 import scalesData from './config/scales';
 import scaleDescriptions from './config/scaleDescriptions.json';
-import { ScaleConfig, LabelMode, AccidentalMode } from './types';
-import { calculateScaleData } from './lib/musicTheory';
-import { buildDiatonicChords, generateChordVoicings } from './lib/chords';
+import {
+  AccidentalMode,
+  LabelMode,
+  ProgressionStepDisplay,
+  ScaleConfig,
+  TimeSignature,
+} from './types';
+import { calculateScaleData, getNoteName } from './lib/musicTheory';
+import {
+  buildDiatonicChords,
+  formatChordNameFromTones,
+  generateChordVoicings,
+  getDiatonicChordTones,
+} from './lib/chords';
 import { TOTAL_FRETS } from './lib/constants';
+import { parseRomanProgression } from './lib/romanNumerals';
 import { Music, Share2 } from 'lucide-react';
+
+const TIME_SIGNATURE_OPTIONS: Array<TimeSignature & { label: string }> = [
+  { label: '2/4', beatsPerBar: 2, beatUnit: 4 },
+  { label: '3/4', beatsPerBar: 3, beatUnit: 4 },
+  { label: '4/4', beatsPerBar: 4, beatUnit: 4 },
+  { label: '6/8', beatsPerBar: 6, beatUnit: 8 },
+  { label: '7/8', beatsPerBar: 7, beatUnit: 8 },
+  { label: '12/8', beatsPerBar: 12, beatUnit: 8 },
+];
+
+const clampNumber = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+const formatProgressionForUrl = (input: string) => input.trim().replace(/[\s,–-]+/g, '-');
 
 const App: React.FC = () => {
   // --- State ---
@@ -23,7 +49,20 @@ const App: React.FC = () => {
   const [hoveredChordId, setHoveredChordId] = useState<string | null>(null);
   const [selectedChordId, setSelectedChordId] = useState<string | null>(null);
   const [voicingSelections, setVoicingSelections] = useState<Record<string, number>>({});
+  const [progressionInput, setProgressionInput] = useState<string>('I V vi IV');
+  const [bpm, setBpm] = useState<number>(120);
+  const [timeSignature, setTimeSignature] = useState<TimeSignature>({
+    beatsPerBar: 4,
+    beatUnit: 4,
+  });
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
+  const [currentBeat, setCurrentBeat] = useState<number>(0);
+  const [metronomeEnabled, setMetronomeEnabled] = useState<boolean>(false);
   const minStartFret = 1;
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const currentStepIndexRef = useRef<number>(currentStepIndex);
+  const currentBeatRef = useRef<number>(currentBeat);
 
   // --- Load Config ---
   const scales: ScaleConfig[] = scalesData;
@@ -48,10 +87,46 @@ const App: React.FC = () => {
     calculateScaleData(rootNote, currentScale, modeIndex),
   [rootNote, currentScale, modeIndex]);
 
+  const uniqueScaleNotes = useMemo(() => Array.from(new Set(scaleData.notes)), [scaleData.notes]);
+  const isHeptatonic = scaleData.notes.length === 7 && uniqueScaleNotes.length === 7;
+
   const currentModeName = currentScale.modeNames
     ? currentScale.modeNames[modeIndex]
     : currentScale.name;
   const scaleDescription = scaleDescriptionsMap[currentScale.id] || '';
+
+  const progressionParse = useMemo(
+    () => parseRomanProgression(progressionInput),
+    [progressionInput]
+  );
+  const progressionSteps = progressionParse.steps;
+  const progressionPreviewSteps: ProgressionStepDisplay[] = useMemo(() => {
+    if (!isHeptatonic) {
+      return [];
+    }
+
+    return progressionSteps.map((step, index) => {
+      const chordTones = getDiatonicChordTones(scaleData.notes, step.degree, step.extension);
+      const chordName = chordTones.length
+        ? formatChordNameFromTones(chordTones[0], chordTones, accidentalMode)
+        : 'N/A';
+      const toneNames = chordTones.map((tone) => getNoteName(tone, accidentalMode));
+
+      return {
+        id: `${step.raw}-${index}`,
+        roman: step.raw,
+        chordName,
+        toneNames,
+        degree: step.degree,
+        extension: step.extension,
+        chordTones,
+      };
+    });
+  }, [progressionSteps, scaleData.notes, accidentalMode, isHeptatonic]);
+
+  const canPlayProgression =
+    isHeptatonic && progressionParse.errors.length === 0 && progressionSteps.length > 0;
+  const isPlaybackDisabled = !canPlayProgression && !isPlaying;
 
   const { triads, sevenths } = useMemo(
     () => buildDiatonicChords(scaleData, accidentalMode),
@@ -103,6 +178,37 @@ const App: React.FC = () => {
     return activeChord?.tones;
   }, [activeVoicingPitches, activeChord]);
 
+  const currentProgressionStep = useMemo(() => {
+    if (!progressionPreviewSteps.length) {
+      return null;
+    }
+    const index = Math.min(currentStepIndex, progressionPreviewSteps.length - 1);
+    return progressionPreviewSteps[index] || null;
+  }, [progressionPreviewSteps, currentStepIndex]);
+
+  const playbackChordTones = useMemo(() => {
+    if (!isPlaying || !currentProgressionStep) {
+      return undefined;
+    }
+    return currentProgressionStep.chordTones;
+  }, [isPlaying, currentProgressionStep]);
+
+  const activeProgressionChordId = useMemo(() => {
+    if (!isPlaying || !currentProgressionStep) {
+      return null;
+    }
+    const prefix = currentProgressionStep.extension === '7' ? 'seventh' : 'triad';
+    return `${prefix}-${currentProgressionStep.degree - 1}`;
+  }, [isPlaying, currentProgressionStep]);
+
+  useEffect(() => {
+    currentStepIndexRef.current = currentStepIndex;
+  }, [currentStepIndex]);
+
+  useEffect(() => {
+    currentBeatRef.current = currentBeat;
+  }, [currentBeat]);
+
   // --- Handlers ---
   const handleReset = () => {
     setRootNote(0); // C
@@ -115,6 +221,13 @@ const App: React.FC = () => {
     setHoveredChordId(null);
     setSelectedChordId(null);
     setVoicingSelections({});
+    setProgressionInput('I V vi IV');
+    setBpm(120);
+    setTimeSignature({ beatsPerBar: 4, beatUnit: 4 });
+    setIsPlaying(false);
+    setCurrentStepIndex(0);
+    setCurrentBeat(0);
+    setMetronomeEnabled(false);
   };
 
   const handleShare = () => {
@@ -123,6 +236,14 @@ const App: React.FC = () => {
      url.searchParams.set('scale', selectedScaleId);
      url.searchParams.set('mode', modeIndex.toString());
      url.searchParams.set('accidental', accidentalMode);
+     const formattedProgression = formatProgressionForUrl(progressionInput);
+     if (formattedProgression) {
+       url.searchParams.set('prog', formattedProgression);
+     } else {
+       url.searchParams.delete('prog');
+     }
+     url.searchParams.set('bpm', bpm.toString());
+     url.searchParams.set('ts', `${timeSignature.beatsPerBar}/${timeSignature.beatUnit}`);
      navigator.clipboard.writeText(url.toString());
      alert("URL copied to clipboard!");
   };
@@ -134,11 +255,29 @@ const App: React.FC = () => {
     const s = params.get('scale');
     const m = params.get('mode');
     const a = params.get('accidental');
+    const p = params.get('prog');
+    const bpmParam = params.get('bpm');
+    const tsParam = params.get('ts');
 
     if (r) setRootNote(Number(r));
     if (s && scales.some(sc => sc.id === s)) setSelectedScaleId(s);
     if (m) setModeIndex(Number(m));
     if (a === 'sharp' || a === 'flat') setAccidentalMode(a as AccidentalMode);
+    if (p) setProgressionInput(p);
+    if (bpmParam) {
+      const parsedBpm = Number(bpmParam);
+      if (Number.isFinite(parsedBpm)) {
+        setBpm(clampNumber(Math.round(parsedBpm), 30, 300));
+      }
+    }
+    if (tsParam) {
+      const match = TIME_SIGNATURE_OPTIONS.find(
+        (option) => `${option.beatsPerBar}/${option.beatUnit}` === tsParam
+      );
+      if (match) {
+        setTimeSignature({ beatsPerBar: match.beatsPerBar, beatUnit: match.beatUnit });
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -146,9 +285,108 @@ const App: React.FC = () => {
     setVoicingSelections({});
   }, [rootNote, selectedScaleId, modeIndex, startFret, positionSpan, accidentalMode]);
 
+  useEffect(() => {
+    if (currentStepIndex >= progressionSteps.length && progressionSteps.length > 0) {
+      setCurrentStepIndex(0);
+    }
+    if (!progressionSteps.length) {
+      setCurrentStepIndex(0);
+    }
+  }, [progressionSteps.length, currentStepIndex]);
+
+  useEffect(() => {
+    if (isPlaying && !canPlayProgression) {
+      setIsPlaying(false);
+    }
+  }, [isPlaying, canPlayProgression]);
+
   const handleStartFretChange = (value: number) => {
     const clamped = Math.min(Math.max(value, minStartFret), maxStartFret);
     setStartFret(clamped);
+  };
+
+  const handleBpmChange = (value: number) => {
+    if (!Number.isFinite(value)) {
+      return;
+    }
+    setBpm(clampNumber(Math.round(value), 30, 300));
+  };
+
+  const handleTimeSignatureChange = (next: TimeSignature) => {
+    setTimeSignature(next);
+  };
+
+  const ensureAudioContext = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return null;
+    }
+    const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) {
+      return null;
+    }
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioCtx();
+    }
+    if (audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume();
+    }
+    return audioContextRef.current;
+  }, []);
+
+  const playMetronomeClick = useCallback(
+    (isDownbeat: boolean) => {
+      if (!metronomeEnabled) {
+        return;
+      }
+      const ctx = ensureAudioContext();
+      if (!ctx) {
+        return;
+      }
+
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = isDownbeat ? 1000 : 720;
+      gain.gain.setValueAtTime(isDownbeat ? 0.08 : 0.05, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.07);
+    },
+    [metronomeEnabled, ensureAudioContext]
+  );
+
+  const handleTogglePlayback = () => {
+    if (isPlaying) {
+      setIsPlaying(false);
+      return;
+    }
+    if (!canPlayProgression) {
+      return;
+    }
+    setIsPlaying(true);
+    setCurrentBeat(0);
+    currentBeatRef.current = 0;
+    if (metronomeEnabled) {
+      playMetronomeClick(true);
+    }
+  };
+
+  const handleResetStep = () => {
+    setCurrentStepIndex(0);
+    setCurrentBeat(0);
+    currentBeatRef.current = 0;
+  };
+
+  const handleProgressionStepSelect = (index: number) => {
+    if (index < 0 || index >= progressionSteps.length) {
+      return;
+    }
+    setCurrentStepIndex(index);
+    currentStepIndexRef.current = index;
+    setCurrentBeat(0);
+    currentBeatRef.current = 0;
   };
 
   useEffect(() => {
@@ -169,6 +407,57 @@ const App: React.FC = () => {
       setHoveredChordId(null);
     }
   }, [selectedChordId, hoveredChordId, chordById]);
+
+  useEffect(() => {
+    if (!isPlaying || !canPlayProgression) {
+      return;
+    }
+
+    const beatDurationMs = (60 / bpm) * 1000 * (4 / timeSignature.beatUnit);
+    let nextTickAt = performance.now() + beatDurationMs;
+    let rafId = 0;
+    let cancelled = false;
+
+    const loop = () => {
+      if (cancelled) {
+        return;
+      }
+      const now = performance.now();
+      while (now >= nextTickAt) {
+        const nextBeat = (currentBeatRef.current + 1) % timeSignature.beatsPerBar;
+        currentBeatRef.current = nextBeat;
+        setCurrentBeat(nextBeat);
+        const isDownbeat = nextBeat === 0;
+
+        if (isDownbeat) {
+          setCurrentStepIndex((prev) => {
+            const nextStep = progressionSteps.length ? (prev + 1) % progressionSteps.length : 0;
+            currentStepIndexRef.current = nextStep;
+            return nextStep;
+          });
+        }
+
+        playMetronomeClick(isDownbeat);
+        nextTickAt += beatDurationMs;
+      }
+      rafId = requestAnimationFrame(loop);
+    };
+
+    rafId = requestAnimationFrame(loop);
+
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(rafId);
+    };
+  }, [
+    isPlaying,
+    canPlayProgression,
+    bpm,
+    timeSignature.beatUnit,
+    timeSignature.beatsPerBar,
+    progressionSteps.length,
+    playMetronomeClick,
+  ]);
 
   return (
     <div className="min-h-screen bg-background text-slate-200 font-sans selection:bg-primary/30">
@@ -218,6 +507,25 @@ const App: React.FC = () => {
               onReset={handleReset}
             />
 
+            <ProgressionControls
+              progressionInput={progressionInput}
+              onProgressionInputChange={setProgressionInput}
+              parseErrors={progressionParse.errors}
+              previewSteps={progressionPreviewSteps}
+              isHeptatonic={isHeptatonic}
+              bpm={bpm}
+              onBpmChange={handleBpmChange}
+              timeSignature={timeSignature}
+              timeSignatureOptions={TIME_SIGNATURE_OPTIONS}
+              onTimeSignatureChange={handleTimeSignatureChange}
+              isPlaying={isPlaying}
+              onTogglePlayback={handleTogglePlayback}
+              onResetStep={handleResetStep}
+              metronomeEnabled={metronomeEnabled}
+              onMetronomeToggle={() => setMetronomeEnabled((current) => !current)}
+              isPlaybackDisabled={isPlaybackDisabled}
+            />
+
             {/* Legend (Hidden on small mobile to save space, optional) */}
             <div className="mt-6 p-4 rounded-lg border border-slate-800/50 hidden md:block">
               <h4 className="text-xs font-bold text-slate-500 uppercase mb-3">Legend</h4>
@@ -230,6 +538,12 @@ const App: React.FC = () => {
                   <div className="w-4 h-4 rounded-full bg-surface border border-slate-600"></div>
                   <span className="text-xs text-slate-400">Scale Interval</span>
                 </div>
+                {isPlaying && (
+                  <div className="flex items-center gap-3">
+                    <div className="w-4 h-4 rounded-full border border-amber-400/70 bg-slate-900"></div>
+                    <span className="text-xs text-slate-400">Chord tones (current step)</span>
+                  </div>
+                )}
               </div>
             </div>
           </aside>
@@ -258,6 +572,7 @@ const App: React.FC = () => {
                     accidentalMode={accidentalMode}
                     highlightNotes={activeHighlightNotes}
                     highlightRoot={activeChord?.root}
+                    progressionChordTones={playbackChordTones}
                   />
                </div>
             </div>
@@ -280,6 +595,11 @@ const App: React.FC = () => {
               selectedChordId={selectedChordId}
               onHoverChord={setHoveredChordId}
               onSelectChord={setSelectedChordId}
+              progressionSteps={progressionPreviewSteps}
+              currentProgressionStepIndex={currentStepIndex}
+              isProgressionPlaying={isPlaying}
+              onProgressionStepSelect={handleProgressionStepSelect}
+              activeProgressionChordId={activeProgressionChordId}
             />
 
             <div className="text-center text-xs text-slate-600 mt-8">

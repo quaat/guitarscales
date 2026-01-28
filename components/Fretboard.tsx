@@ -9,6 +9,7 @@ interface FretboardProps {
   accidentalMode: AccidentalMode;
   highlightNotes?: PitchClass[];
   highlightRoot?: PitchClass;
+  progressionChordTones?: PitchClass[];
 }
 
 export const Fretboard: React.FC<FretboardProps> = ({
@@ -17,9 +18,11 @@ export const Fretboard: React.FC<FretboardProps> = ({
   accidentalMode,
   highlightNotes,
   highlightRoot,
+  progressionChordTones,
 }) => {
   const { rootNote, notes, formula } = data;
   const highlightSet = highlightNotes ? new Set(highlightNotes) : null;
+  const progressionSet = progressionChordTones ? new Set(progressionChordTones) : null;
 
   // Helper to check if a note is in scale
   const getNoteInfo = (stringIndex: number, fretIndex: number) => {
@@ -34,8 +37,9 @@ export const Fretboard: React.FC<FretboardProps> = ({
 
     const isHighlighted = highlightSet ? highlightSet.has(currentPitch) : false;
     const isHighlightRoot = typeof highlightRoot === 'number' && highlightRoot === currentPitch;
+    const isProgressionTone = progressionSet ? progressionSet.has(currentPitch) : false;
 
-    return { isInScale, isRoot, degree, noteName, currentPitch, isHighlighted, isHighlightRoot };
+    return { isInScale, isRoot, degree, noteName, currentPitch, isHighlighted, isHighlightRoot, isProgressionTone };
   };
 
   return (
@@ -111,7 +115,15 @@ export const Fretboard: React.FC<FretboardProps> = ({
 
                 {/* Frets for this string */}
                 {Array.from({ length: TOTAL_FRETS }).map((_, fretIndex) => {
-                   const { isInScale, isRoot, degree, noteName, isHighlighted, isHighlightRoot } = getNoteInfo(stringIndex, fretIndex);
+                   const {
+                     isInScale,
+                     isRoot,
+                     degree,
+                     noteName,
+                     isHighlighted,
+                     isHighlightRoot,
+                     isProgressionTone,
+                   } = getNoteInfo(stringIndex, fretIndex);
 
                    // The fret area. Notes are centered in the fret box (except nut).
                    // The vertical lines define the END of the fret.
@@ -131,7 +143,9 @@ export const Fretboard: React.FC<FretboardProps> = ({
                                    ? 'ring-2 ring-primary/80 ring-offset-2 ring-offset-[#161b22]'
                                    : isHighlighted
                                      ? 'ring-2 ring-accent/60 ring-offset-2 ring-offset-[#161b22]'
-                                     : ''
+                                     : isProgressionTone
+                                       ? 'ring-1 ring-amber-400/60'
+                                      : ''
                                  }
                                  ${isRoot
                                     ? 'bg-primary text-slate-900 ring-2 ring-primary/50 ring-offset-2 ring-offset-[#161b22] font-bold scale-110'

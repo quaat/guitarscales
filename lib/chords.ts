@@ -1,6 +1,16 @@
 import { STANDARD_TUNING, TOTAL_FRETS } from './constants';
 import { normalizePitch, getNoteName } from './musicTheory';
-import { AccidentalMode, ChordQuality, ChordType, DiatonicChord, ChordVoicing, PitchClass, ScaleCalculatedData } from '../types';
+import {
+  AccidentalMode,
+  ChordQuality,
+  ChordType,
+  DiatonicChord,
+  ChordVoicing,
+  PitchClass,
+  RomanDegree,
+  RomanExtension,
+  ScaleCalculatedData,
+} from '../types';
 
 const ROMAN_NUMERALS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
 
@@ -134,6 +144,43 @@ const getRequiredIntervals = (intervals: number[], type: ChordType): number[] =>
     required.push(seventh);
   }
   return required;
+};
+
+export const getDiatonicChordTones = (
+  scalePitchClasses: PitchClass[],
+  degree: RomanDegree,
+  extension: RomanExtension
+): PitchClass[] => {
+  if (scalePitchClasses.length !== 7) {
+    return [];
+  }
+  const offsets = extension === '7' ? [0, 2, 4, 6] : [0, 2, 4];
+  const degreeIndex = degree - 1;
+  return offsets.map((offset) => scalePitchClasses[(degreeIndex + offset) % 7]);
+};
+
+export const formatChordNameFromTones = (
+  rootPc: PitchClass,
+  chordTones: PitchClass[],
+  accidentalMode: AccidentalMode
+): string => {
+  const rootName = getNoteName(rootPc, accidentalMode);
+  if (!chordTones.length) {
+    return rootName;
+  }
+
+  const intervals = chordTones
+    .map((tone) => normalizePitch(tone - rootPc))
+    .sort((a, b) => a - b);
+  const isSeventh = chordTones.length >= 4;
+  const quality = isSeventh ? getSeventhQuality(intervals) : getTriadQuality(intervals);
+
+  if (quality === 'unknown') {
+    return `${rootName}${isSeventh ? '7' : ''}`;
+  }
+
+  const suffix = getChordSuffix(quality, isSeventh ? 'seventh' : 'triad');
+  return `${rootName}${suffix}`;
 };
 
 export const buildDiatonicChords = (

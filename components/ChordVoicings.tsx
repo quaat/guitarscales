@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { AccidentalMode, ChordVoicing, DiatonicChord, PitchClass } from '../types';
+import { AccidentalMode, ChordVoicing, DiatonicChord, PitchClass, ProgressionStepDisplay } from '../types';
 import { generateChordVoicings, findNearestVoicingPosition } from '../lib/chords';
 
 type FilterMode = 'all' | 'triad' | 'seventh';
@@ -21,6 +21,11 @@ interface ChordVoicingsProps {
   selectedChordId: string | null;
   onHoverChord: (id: string | null) => void;
   onSelectChord: (id: string | null) => void;
+  progressionSteps: ProgressionStepDisplay[];
+  currentProgressionStepIndex: number;
+  isProgressionPlaying: boolean;
+  onProgressionStepSelect: (index: number) => void;
+  activeProgressionChordId?: string | null;
 }
 
 const getOrdinal = (value: number): string => {
@@ -180,6 +185,11 @@ export const ChordVoicings: React.FC<ChordVoicingsProps> = ({
   selectedChordId,
   onHoverChord,
   onSelectChord,
+  progressionSteps,
+  currentProgressionStepIndex,
+  isProgressionPlaying,
+  onProgressionStepSelect,
+  activeProgressionChordId,
 }) => {
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [densityMode, setDensityMode] = useState<DensityMode>('comfortable');
@@ -231,61 +241,13 @@ export const ChordVoicings: React.FC<ChordVoicingsProps> = ({
 
   return (
     <section className="bg-[#111211] rounded-xl border border-slate-800 p-4 sm:p-6 space-y-6">
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <h3 className="text-base sm:text-lg font-semibold text-slate-100">Diatonic Chords</h3>
-            <p className="text-xs text-slate-500">Built from scale tones of the selected mode.</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <label className="text-xs text-slate-400 font-mono uppercase tracking-wide">Position</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="range"
-                min={minStartFret}
-                max={maxStartFret}
-                value={startFret}
-                onChange={(event) => onStartFretChange(Number(event.target.value))}
-                className="w-32 accent-primary"
-              />
-              <span className="text-xs text-slate-300 w-8 text-right">{startFret}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="rounded-lg border border-slate-800/70 bg-slate-900/40 p-4">
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">Triads</h4>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-slate-300 font-mono">
-              {triads.map((chord) => (
-                <div key={chord.id} className="flex items-center justify-between">
-                  <span className="text-slate-500">{chord.degreeLabel}</span>
-                  <span>{chord.name}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="rounded-lg border border-slate-800/70 bg-slate-900/40 p-4">
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">7th Chords</h4>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-slate-300 font-mono">
-              {sevenths.map((chord) => (
-                <div key={chord.id} className="flex items-center justify-between">
-                  <span className="text-slate-500">{chord.degreeLabel}</span>
-                  <span>{chord.name}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="border-t border-slate-800/70 pt-6 space-y-4">
+      <div className="space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div>
             <h3 className="text-base sm:text-lg font-semibold text-slate-100">Chord Voicings</h3>
             <p className="text-xs text-slate-500">Playable shapes within a 4-fret window from the selected start fret.</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-3 text-xs">
             <div className="flex rounded-full border border-slate-700 overflow-hidden">
               {(['all', 'triad', 'seventh'] as FilterMode[]).map((mode) => (
                 <button
@@ -307,8 +269,57 @@ export const ChordVoicings: React.FC<ChordVoicingsProps> = ({
             >
               {densityMode === 'comfortable' ? 'Comfortable' : 'Compact'}
             </button>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-slate-400 font-mono uppercase tracking-wide" htmlFor="voicing-position">
+                Position
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  id="voicing-position"
+                  type="range"
+                  min={minStartFret}
+                  max={maxStartFret}
+                  value={startFret}
+                  onChange={(event) => onStartFretChange(Number(event.target.value))}
+                  className="w-28 accent-primary"
+                />
+                <span className="text-xs text-slate-300 w-8 text-right">{startFret}</span>
+              </div>
+            </div>
           </div>
         </div>
+
+        {progressionSteps.length > 0 && (
+          <div className="rounded-lg border border-slate-800/70 bg-slate-900/40 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Progression</span>
+              <span className="text-[10px] text-slate-500 font-mono uppercase">Click to jump</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {progressionSteps.map((step, index) => {
+                const isCurrent = index === currentProgressionStepIndex;
+                const isActive = isCurrent && isProgressionPlaying;
+                return (
+                  <button
+                    key={step.id}
+                    onClick={() => onProgressionStepSelect(index)}
+                    title={`${step.chordName} • ${step.toneNames.join('-')}`}
+                    aria-label={`Go to ${step.roman} (${step.chordName})`}
+                    aria-current={isActive ? 'step' : undefined}
+                    className={`px-3 py-2 rounded-lg border text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 ${
+                      isCurrent
+                        ? 'border-primary/60 bg-slate-900 text-slate-100'
+                        : 'border-slate-800 text-slate-300 hover:border-slate-600'
+                    } ${isActive ? 'motion-safe:animate-pulse' : ''}`}
+                  >
+                    <div className="text-xs font-mono uppercase">{step.roman}</div>
+                    <div className="text-[10px] text-slate-400">{step.chordName}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div
           className={`grid gap-4 ${
@@ -319,6 +330,7 @@ export const ChordVoicings: React.FC<ChordVoicingsProps> = ({
         >
           {chordEntries.map(({ chord, voicings }) => {
             const isActive = hoveredChordId === chord.id || selectedChordId === chord.id;
+            const isProgressionTarget = activeProgressionChordId === chord.id;
             const activeIndex = Math.min(voicingSelections[chord.id] ?? 0, Math.max(voicings.length - 1, 0));
             const activeVoicing = voicings[activeIndex] || null;
             return (
@@ -338,7 +350,9 @@ export const ChordVoicings: React.FC<ChordVoicingsProps> = ({
                 className={`rounded-xl border p-4 transition cursor-pointer ${
                   isActive
                     ? 'border-accent/60 ring-2 ring-accent/40 bg-slate-900/70'
-                    : 'border-slate-800/70 bg-slate-900/40 hover:border-slate-700'
+                    : isProgressionTarget
+                      ? 'border-amber-400/70 ring-2 ring-amber-400/30 bg-slate-900/60'
+                      : 'border-slate-800/70 bg-slate-900/40 hover:border-slate-700'
                 } ${densityMode === 'compact' ? 'p-3' : ''}`}
               >
                 <div className="flex items-center justify-between mb-3">
@@ -415,6 +429,37 @@ export const ChordVoicings: React.FC<ChordVoicingsProps> = ({
               </div>
             );
           })}
+        </div>
+      </div>
+
+      <div className="border-t border-slate-800/70 pt-6 space-y-4">
+        <div>
+          <h3 className="text-base sm:text-lg font-semibold text-slate-100">Diatonic Chords</h3>
+          <p className="text-xs text-slate-500">Built from scale tones of the selected mode.</p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-lg border border-slate-800/70 bg-slate-900/40 p-4">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">Triads</h4>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-slate-300 font-mono">
+              {triads.map((chord) => (
+                <div key={chord.id} className="flex items-center justify-between">
+                  <span className="text-slate-500">{chord.degreeLabel}</span>
+                  <span>{chord.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-lg border border-slate-800/70 bg-slate-900/40 p-4">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">7th Chords</h4>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-slate-300 font-mono">
+              {sevenths.map((chord) => (
+                <div key={chord.id} className="flex items-center justify-between">
+                  <span className="text-slate-500">{chord.degreeLabel}</span>
+                  <span>{chord.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </section>

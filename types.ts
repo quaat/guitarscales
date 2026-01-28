@@ -73,3 +73,48 @@ export interface ScaleCalculatedData {
   notes: PitchClass[]; // The pitch classes included in this mode
   formula: string[]; // e.g., ["1", "2", "b3", ...]
 }
+
+export type RomanDegree = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+export type RomanExtension = 'triad' | '7';
+
+export interface RomanStep {
+  raw: string;
+  degree: RomanDegree;
+  extension: RomanExtension;
+}
+
+export interface RomanParseError {
+  message: string;
+  token: string;
+  start: number;
+  end: number;
+}
+
+export interface RomanStepParseResult {
+  steps: RomanStep[];
+  errors: RomanParseError[];
+}
+
+export interface TimeSignature {
+  beatsPerBar: number;
+  beatUnit: 2 | 4 | 8;
+}
+
+export interface ProgressionState {
+  steps: RomanStep[];
+  bpm: number;
+  timeSignature: TimeSignature;
+  isPlaying: boolean;
+  currentStepIndex: number;
+  currentBeat: number;
+}
+
+export interface ProgressionStepDisplay {
+  id: string;
+  roman: string;
+  chordName: string;
+  toneNames: string[];
+  degree: RomanDegree;
+  extension: RomanExtension;
+  chordTones: PitchClass[];
+}
