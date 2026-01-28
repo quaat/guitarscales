@@ -26,6 +26,21 @@ interface ProgressionControlsProps {
   metronomeEnabled: boolean;
   onMetronomeToggle: () => void;
   isPlaybackDisabled: boolean;
+  midiSupported: boolean;
+  midiEnabled: boolean;
+  onMidiToggle: () => void;
+  midiOutputs: MIDIOutput[];
+  selectedMidiOutputId: string;
+  onMidiOutputChange: (id: string) => void;
+  midiError?: string | null;
+  midiVelocity: number;
+  onMidiVelocityChange: (value: number) => void;
+  midiDurationRatio: number;
+  onMidiDurationChange: (value: number) => void;
+  midiStrumEnabled: boolean;
+  onMidiStrumToggle: () => void;
+  midiStrumMs: number;
+  onMidiStrumMsChange: (value: number) => void;
 }
 
 export const ProgressionControls: React.FC<ProgressionControlsProps> = ({
@@ -45,10 +60,29 @@ export const ProgressionControls: React.FC<ProgressionControlsProps> = ({
   metronomeEnabled,
   onMetronomeToggle,
   isPlaybackDisabled,
+  midiSupported,
+  midiEnabled,
+  onMidiToggle,
+  midiOutputs,
+  selectedMidiOutputId,
+  onMidiOutputChange,
+  midiError,
+  midiVelocity,
+  onMidiVelocityChange,
+  midiDurationRatio,
+  onMidiDurationChange,
+  midiStrumEnabled,
+  onMidiStrumToggle,
+  midiStrumMs,
+  onMidiStrumMsChange,
 }) => {
   const errorMessage = !isHeptatonic
     ? 'Roman numeral progressions currently require a 7-note scale.'
     : parseErrors[0]?.message;
+
+  const midiUnavailableMessage = midiSupported
+    ? midiError
+    : 'MIDI not available in this browser.';
 
   return (
     <div className="bg-surface rounded-xl p-5 shadow-lg border border-slate-700/50 flex flex-col gap-4 backdrop-blur-sm">
@@ -185,6 +219,111 @@ export const ProgressionControls: React.FC<ProgressionControlsProps> = ({
           />
           Metronome
         </label>
+      </div>
+
+      <div className="border-t border-slate-800/70 pt-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-slate-300">MIDI Playback</span>
+          {midiUnavailableMessage && (
+            <span className="text-[10px] text-slate-500">{midiUnavailableMessage}</span>
+          )}
+        </div>
+
+        <label className="flex items-center gap-2 text-xs text-slate-400">
+          <input
+            type="checkbox"
+            checked={midiEnabled}
+            onChange={() => onMidiToggle()}
+            disabled={!midiSupported || !isHeptatonic}
+            className="accent-primary"
+          />
+          Play chord via MIDI
+        </label>
+
+        <div className="space-y-2">
+          <label className="text-xs font-medium text-slate-300" htmlFor="midi-output">
+            MIDI Output
+          </label>
+          <select
+            id="midi-output"
+            value={selectedMidiOutputId}
+            onChange={(event) => onMidiOutputChange(event.target.value)}
+            disabled={!midiEnabled || midiOutputs.length === 0}
+            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-shadow appearance-none cursor-pointer hover:border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed"
+            style={{ backgroundImage: 'none' }}
+          >
+            {midiOutputs.length === 0 ? (
+              <option value="">No outputs detected</option>
+            ) : (
+              midiOutputs.map((output) => (
+                <option key={output.id} value={output.id}>
+                  {output.name || 'MIDI Output'}
+                </option>
+              ))
+            )}
+          </select>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-300" htmlFor="midi-velocity">
+              Velocity
+            </label>
+            <input
+              id="midi-velocity"
+              type="range"
+              min={0}
+              max={127}
+              value={midiVelocity}
+              onChange={(event) => onMidiVelocityChange(Number(event.target.value))}
+              disabled={!midiEnabled}
+              className="w-full accent-primary"
+            />
+            <div className="text-[10px] text-slate-500">{midiVelocity}</div>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-300" htmlFor="midi-duration">
+              Chord Length
+            </label>
+            <select
+              id="midi-duration"
+              value={midiDurationRatio}
+              onChange={(event) => onMidiDurationChange(Number(event.target.value))}
+              disabled={!midiEnabled}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-shadow appearance-none cursor-pointer hover:border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed"
+              style={{ backgroundImage: 'none' }}
+            >
+              <option value={0.5}>Short (50%)</option>
+              <option value={0.75}>Medium (75%)</option>
+              <option value={0.95}>Full (95%)</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-xs text-slate-400">
+            <input
+              type="checkbox"
+              checked={midiStrumEnabled}
+              onChange={() => onMidiStrumToggle()}
+              disabled={!midiEnabled}
+              className="accent-primary"
+            />
+            Strum
+          </label>
+          <div className="flex-1 min-w-[140px]">
+            <input
+              type="range"
+              min={0}
+              max={40}
+              value={midiStrumMs}
+              onChange={(event) => onMidiStrumMsChange(Number(event.target.value))}
+              disabled={!midiEnabled || !midiStrumEnabled}
+              className="w-full accent-primary"
+            />
+            <div className="text-[10px] text-slate-500">{midiStrumMs} ms per note</div>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -22,6 +22,15 @@ import {
 } from './lib/chords';
 import { TOTAL_FRETS } from './lib/constants';
 import { parseRomanProgression } from './lib/romanNumerals';
+import {
+  allNotesOff,
+  buildNeutralChordVoicing,
+  getMidiNotesFromVoicing,
+  isMidiSupported,
+  listOutputs,
+  requestMidiAccess,
+  sendChord,
+} from './lib/midi';
 import { Music, Share2 } from 'lucide-react';
 
 const TIME_SIGNATURE_OPTIONS: Array<TimeSignature & { label: string }> = [
@@ -59,10 +68,22 @@ const App: React.FC = () => {
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
   const [currentBeat, setCurrentBeat] = useState<number>(0);
   const [metronomeEnabled, setMetronomeEnabled] = useState<boolean>(false);
+  const [midiEnabled, setMidiEnabled] = useState<boolean>(false);
+  const [midiAccess, setMidiAccess] = useState<MIDIAccess | null>(null);
+  const [midiOutputs, setMidiOutputs] = useState<MIDIOutput[]>([]);
+  const [selectedMidiOutputId, setSelectedMidiOutputId] = useState<string>('');
+  const [midiError, setMidiError] = useState<string | null>(null);
+  const [midiVelocity, setMidiVelocity] = useState<number>(80);
+  const [midiDurationRatio, setMidiDurationRatio] = useState<number>(0.75);
+  const [midiStrumEnabled, setMidiStrumEnabled] = useState<boolean>(false);
+  const [midiStrumMs, setMidiStrumMs] = useState<number>(12);
   const minStartFret = 1;
   const audioContextRef = useRef<AudioContext | null>(null);
   const currentStepIndexRef = useRef<number>(currentStepIndex);
   const currentBeatRef = useRef<number>(currentBeat);
+  const midiCleanupRef = useRef<(() => void) | null>(null);
+  const lastMidiNotesRef = useRef<number[]>([]);
+  const midiOutputRef = useRef<MIDIOutput | null>(null);
 
   // --- Load Config ---
   const scales: ScaleConfig[] = scalesData;
@@ -127,6 +148,7 @@ const App: React.FC = () => {
   const canPlayProgression =
     isHeptatonic && progressionParse.errors.length === 0 && progressionSteps.length > 0;
   const isPlaybackDisabled = !canPlayProgression && !isPlaying;
+  const midiSupported = useMemo(() => isMidiSupported(), []);
 
   const { triads, sevenths } = useMemo(
     () => buildDiatonicChords(scaleData, accidentalMode),
@@ -158,6 +180,22 @@ const App: React.FC = () => {
     }
     return chordById.get(selectedChordId) || null;
   }, [selectedChordId, chordById]);
+
+  const selectedChordVoicing = useMemo(() => {
+    if (!selectedChordId) {
+      return null;
+    }
+    const chord = chordById.get(selectedChordId);
+    if (!chord) {
+      return null;
+    }
+    const voicings = generateChordVoicings(chord, startFret, positionSpan, accidentalMode);
+    if (!voicings.length) {
+      return null;
+    }
+    const index = voicingSelections[chord.id] ?? 0;
+    return voicings[Math.min(index, voicings.length - 1)] || null;
+  }, [selectedChordId, chordById, startFret, positionSpan, accidentalMode, voicingSelections]);
 
   const activeVoicing = useMemo(() => {
     if (!activeChord) {
@@ -218,6 +256,13 @@ const App: React.FC = () => {
     return `${prefix}-${currentProgressionStep.degree - 1}`;
   }, [isPlaying, currentProgressionStep]);
 
+  const midiOutput = useMemo(() => {
+    if (!selectedMidiOutputId) {
+      return midiOutputs[0] || null;
+    }
+    return midiOutputs.find((output) => output.id === selectedMidiOutputId) || midiOutputs[0] || null;
+  }, [midiOutputs, selectedMidiOutputId]);
+
   useEffect(() => {
     currentStepIndexRef.current = currentStepIndex;
   }, [currentStepIndex]);
@@ -225,6 +270,13 @@ const App: React.FC = () => {
   useEffect(() => {
     currentBeatRef.current = currentBeat;
   }, [currentBeat]);
+
+  useEffect(() => {
+    if (midiOutputRef.current && midiOutputRef.current !== midiOutput) {
+      allNotesOff(midiOutputRef.current, 0, lastMidiNotesRef.current);
+    }
+    midiOutputRef.current = midiOutput;
+  }, [midiOutput]);
 
   // --- Handlers ---
   const handleReset = () => {
@@ -245,6 +297,12 @@ const App: React.FC = () => {
     setCurrentStepIndex(0);
     setCurrentBeat(0);
     setMetronomeEnabled(false);
+    setMidiEnabled(false);
+    setMidiVelocity(80);
+    setMidiDurationRatio(0.75);
+    setMidiStrumEnabled(false);
+    setMidiStrumMs(12);
+    setMidiError(null);
   };
 
   const handleShare = () => {
@@ -303,6 +361,35 @@ const App: React.FC = () => {
   }, [rootNote, selectedScaleId, modeIndex, startFret, positionSpan, accidentalMode]);
 
   useEffect(() => {
+    if (!midiAccess) {
+      return;
+    }
+
+    const updateOutputs = () => {
+      const outputs = listOutputs(midiAccess);
+      setMidiOutputs(outputs);
+      if (outputs.length === 0) {
+        setSelectedMidiOutputId('');
+        return;
+      }
+      setSelectedMidiOutputId((current) => {
+        if (current && outputs.some((output) => output.id === current)) {
+          return current;
+        }
+        return outputs[0].id;
+      });
+    };
+
+    updateOutputs();
+    const handleStateChange = () => updateOutputs();
+    midiAccess.onstatechange = handleStateChange;
+
+    return () => {
+      midiAccess.onstatechange = null;
+    };
+  }, [midiAccess]);
+
+  useEffect(() => {
     if (currentStepIndex >= progressionSteps.length && progressionSteps.length > 0) {
       setCurrentStepIndex(0);
     }
@@ -332,6 +419,144 @@ const App: React.FC = () => {
   const handleTimeSignatureChange = (next: TimeSignature) => {
     setTimeSignature(next);
   };
+
+  const stopMidiNotes = useCallback(() => {
+    if (midiCleanupRef.current) {
+      midiCleanupRef.current();
+      midiCleanupRef.current = null;
+    }
+    const output = midiOutputRef.current;
+    if (output) {
+      allNotesOff(output, 0, lastMidiNotesRef.current);
+    }
+    lastMidiNotesRef.current = [];
+  }, []);
+
+  const handleMidiToggle = async () => {
+    if (!midiSupported) {
+      setMidiError('MIDI not available in this browser.');
+      return;
+    }
+    if (midiEnabled) {
+      setMidiEnabled(false);
+      stopMidiNotes();
+      return;
+    }
+
+    if (!midiAccess) {
+      try {
+        const access = await requestMidiAccess();
+        setMidiAccess(access);
+        setMidiError(null);
+        setMidiEnabled(true);
+      } catch (error) {
+        setMidiError('Unable to access MIDI devices.');
+      }
+      return;
+    }
+
+    setMidiEnabled(true);
+  };
+
+  const handleMidiOutputChange = (id: string) => {
+    setSelectedMidiOutputId(id);
+  };
+
+  const handleMidiVelocityChange = (value: number) => {
+    if (!Number.isFinite(value)) {
+      return;
+    }
+    setMidiVelocity(clampNumber(Math.round(value), 0, 127));
+  };
+
+  const handleMidiDurationChange = (value: number) => {
+    if (!Number.isFinite(value)) {
+      return;
+    }
+    setMidiDurationRatio(value);
+  };
+
+  const handleMidiStrumMsChange = (value: number) => {
+    if (!Number.isFinite(value)) {
+      return;
+    }
+    setMidiStrumMs(clampNumber(Math.round(value), 0, 40));
+  };
+
+  const triggerMidiForStep = useCallback(
+    (stepIndex: number, barDurationMs: number) => {
+      if (!midiEnabled) {
+        return;
+      }
+      const output = midiOutputRef.current;
+      if (!output) {
+        return;
+      }
+      const step = progressionPreviewSteps[stepIndex];
+      if (!step) {
+        return;
+      }
+
+      stopMidiNotes();
+
+      const durationMs = Math.max(30, Math.round(barDurationMs * midiDurationRatio));
+      const strumMs = midiStrumEnabled ? midiStrumMs : 0;
+      let notes: number[] = [];
+
+      if (selectedChordVoicing) {
+        notes = getMidiNotesFromVoicing(selectedChordVoicing);
+      } else {
+        notes = buildNeutralChordVoicing(step.chordTones, lastMidiNotesRef.current);
+      }
+
+      if (!notes.length) {
+        return;
+      }
+
+      midiCleanupRef.current = sendChord(output, notes, midiVelocity, durationMs, { strumMs });
+      lastMidiNotesRef.current = notes;
+    },
+    [
+      midiEnabled,
+      midiDurationRatio,
+      midiStrumEnabled,
+      midiStrumMs,
+      progressionPreviewSteps,
+      selectedChordVoicing,
+      midiVelocity,
+      stopMidiNotes,
+    ]
+  );
+
+  useEffect(() => {
+    if (!midiEnabled) {
+      stopMidiNotes();
+    }
+  }, [midiEnabled, stopMidiNotes]);
+
+  useEffect(() => {
+    if (!isPlaying) {
+      stopMidiNotes();
+    }
+  }, [isPlaying, stopMidiNotes]);
+
+  useEffect(() => {
+    stopMidiNotes();
+  }, [selectedMidiOutputId, stopMidiNotes]);
+
+  useEffect(() => {
+    if (midiEnabled && isPlaying && canPlayProgression) {
+      const beatDurationMs = (60 / bpm) * 1000 * (4 / timeSignature.beatUnit);
+      const barDurationMs = beatDurationMs * timeSignature.beatsPerBar;
+      triggerMidiForStep(currentStepIndexRef.current, barDurationMs);
+    }
+  }, [midiEnabled, isPlaying, canPlayProgression, bpm, timeSignature.beatUnit, timeSignature.beatsPerBar, triggerMidiForStep]);
+
+  useEffect(() => {
+    return () => {
+      stopMidiNotes();
+    };
+  }, [stopMidiNotes]);
 
   const ensureAudioContext = useCallback(() => {
     if (typeof window === 'undefined') {
@@ -388,6 +613,9 @@ const App: React.FC = () => {
     if (metronomeEnabled) {
       playMetronomeClick(true);
     }
+    const beatDurationMs = (60 / bpm) * 1000 * (4 / timeSignature.beatUnit);
+    const barDurationMs = beatDurationMs * timeSignature.beatsPerBar;
+    triggerMidiForStep(currentStepIndexRef.current, barDurationMs);
   };
 
   const handleResetStep = () => {
@@ -404,6 +632,11 @@ const App: React.FC = () => {
     currentStepIndexRef.current = index;
     setCurrentBeat(0);
     currentBeatRef.current = 0;
+    if (isPlaying) {
+      const beatDurationMs = (60 / bpm) * 1000 * (4 / timeSignature.beatUnit);
+      const barDurationMs = beatDurationMs * timeSignature.beatsPerBar;
+      triggerMidiForStep(index, barDurationMs);
+    }
   };
 
   useEffect(() => {
@@ -431,6 +664,7 @@ const App: React.FC = () => {
     }
 
     const beatDurationMs = (60 / bpm) * 1000 * (4 / timeSignature.beatUnit);
+    const barDurationMs = beatDurationMs * timeSignature.beatsPerBar;
     let nextTickAt = performance.now() + beatDurationMs;
     let rafId = 0;
     let cancelled = false;
@@ -447,11 +681,12 @@ const App: React.FC = () => {
         const isDownbeat = nextBeat === 0;
 
         if (isDownbeat) {
-          setCurrentStepIndex((prev) => {
-            const nextStep = progressionSteps.length ? (prev + 1) % progressionSteps.length : 0;
-            currentStepIndexRef.current = nextStep;
-            return nextStep;
-          });
+          const nextStep = progressionSteps.length
+            ? (currentStepIndexRef.current + 1) % progressionSteps.length
+            : 0;
+          currentStepIndexRef.current = nextStep;
+          setCurrentStepIndex(nextStep);
+          triggerMidiForStep(nextStep, barDurationMs);
         }
 
         playMetronomeClick(isDownbeat);
@@ -474,6 +709,7 @@ const App: React.FC = () => {
     timeSignature.beatsPerBar,
     progressionSteps.length,
     playMetronomeClick,
+    triggerMidiForStep,
   ]);
 
   return (
@@ -541,6 +777,21 @@ const App: React.FC = () => {
               metronomeEnabled={metronomeEnabled}
               onMetronomeToggle={() => setMetronomeEnabled((current) => !current)}
               isPlaybackDisabled={isPlaybackDisabled}
+              midiSupported={midiSupported}
+              midiEnabled={midiEnabled}
+              onMidiToggle={handleMidiToggle}
+              midiOutputs={midiOutputs}
+              selectedMidiOutputId={selectedMidiOutputId}
+              onMidiOutputChange={handleMidiOutputChange}
+              midiError={midiError}
+              midiVelocity={midiVelocity}
+              onMidiVelocityChange={handleMidiVelocityChange}
+              midiDurationRatio={midiDurationRatio}
+              onMidiDurationChange={handleMidiDurationChange}
+              midiStrumEnabled={midiStrumEnabled}
+              onMidiStrumToggle={() => setMidiStrumEnabled((current) => !current)}
+              midiStrumMs={midiStrumMs}
+              onMidiStrumMsChange={handleMidiStrumMsChange}
             />
 
             {/* Legend (Hidden on small mobile to save space, optional) */}
