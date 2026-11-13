@@ -14,6 +14,7 @@ import {
   TimeSignature,
 } from './types';
 import { calculateScaleData, getNoteName } from './lib/musicTheory';
+import { getDefaultAccidentalMode } from './lib/accidentals';
 import {
   buildDiatonicChords,
   formatChordNameFromTones,
@@ -52,7 +53,7 @@ const App: React.FC = () => {
   const [selectedScaleId, setSelectedScaleId] = useState<string>('major');
   const [modeIndex, setModeIndex] = useState<number>(0);
   const [labelMode, setLabelMode] = useState<LabelMode>('note');
-  const [accidentalMode, setAccidentalMode] = useState<AccidentalMode>('sharp');
+  const [accidentalOverride, setAccidentalOverride] = useState<AccidentalMode | null>(null);
   const [startFret, setStartFret] = useState<number>(1);
   const [positionSpan, setPositionSpan] = useState<number>(3);
   const [hoveredChordId, setHoveredChordId] = useState<string | null>(null);
@@ -93,6 +94,8 @@ const App: React.FC = () => {
   const currentScale = useMemo(() =>
     scales.find(s => s.id === selectedScaleId) || scales[0],
   [selectedScaleId, scales]);
+
+  const accidentalMode = accidentalOverride ?? getDefaultAccidentalMode(rootNote, currentScale, modeIndex);
 
   // Reset mode if scale changes and new scale doesn't have that many modes
   useEffect(() => {
@@ -284,7 +287,7 @@ const App: React.FC = () => {
     setSelectedScaleId('major');
     setModeIndex(0);
     setLabelMode('note');
-    setAccidentalMode('sharp');
+    setAccidentalOverride(null);
     setStartFret(minStartFret);
     setPositionSpan(3);
     setHoveredChordId(null);
@@ -337,7 +340,7 @@ const App: React.FC = () => {
     if (r) setRootNote(Number(r));
     if (s && scales.some(sc => sc.id === s)) setSelectedScaleId(s);
     if (m) setModeIndex(Number(m));
-    if (a === 'sharp' || a === 'flat') setAccidentalMode(a as AccidentalMode);
+    if (a === 'sharp' || a === 'flat') setAccidentalOverride(a);
     if (p) setProgressionInput(p);
     if (bpmParam) {
       const parsedBpm = Number(bpmParam);
@@ -748,15 +751,25 @@ const App: React.FC = () => {
             <Controls
               scales={scales}
               selectedScaleId={selectedScaleId}
-              onScaleChange={setSelectedScaleId}
+              onScaleChange={(id) => {
+                setSelectedScaleId(id);
+                setModeIndex(0);
+                setAccidentalOverride(null);
+              }}
               rootNote={rootNote}
-              onRootChange={setRootNote}
+              onRootChange={(note) => {
+                setRootNote(note);
+                setAccidentalOverride(null);
+              }}
               modeIndex={modeIndex}
-              onModeChange={setModeIndex}
+              onModeChange={(index) => {
+                setModeIndex(index);
+                setAccidentalOverride(null);
+              }}
               labelMode={labelMode}
               onLabelModeChange={setLabelMode}
               accidentalMode={accidentalMode}
-              onAccidentalModeChange={setAccidentalMode}
+              onAccidentalModeChange={setAccidentalOverride}
               onReset={handleReset}
             />
 
